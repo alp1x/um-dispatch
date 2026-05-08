@@ -1,37 +1,6 @@
 <script lang="ts">
 	import { ReceiveNUI } from '@utils/ReceiveNUI'
-	import { debugData } from '@utils/debugData'
-	import { VISIBILITY, BROWSER_MODE, DISPATCH_MENU, DISPATCH_MENUS, DISPATCH, PLAYER, Locale, RESPOND_KEYBIND, MAX_CALL_LIST, shortCalls } from '@store/stores';
-
-	debugData([
-		{
-			action: 'setVisible',
-			data: true,
-		},
-	])
-
-	debugData([
-		{
-			action: 'setBrowserMode',
-			data: true
-		},
-	])
-
-	function browserHideAndShow(e: KeyboardEvent) {
-		if (e.key === '=') {
-			$VISIBILITY = true
-		}
-	}
-
-	ReceiveNUI('setBrowserMode', (data: boolean) => {
-		BROWSER_MODE.set(data)
-		console.log('browser mode enabled')
-		if (data) {
-			window.addEventListener('keydown', browserHideAndShow)
-		} else {
-			window.removeEventListener('keydown', browserHideAndShow)
-		}
-	})
+	import { DISPATCH_MENU, DISPATCH, PLAYER, Locale, RESPOND_KEYBIND, MAX_CALL_LIST, shortCalls } from '@store/stores';
 
 	ReceiveNUI('newCall', (data: any) => {
 		DISPATCH.update(dispatches => {
@@ -52,5 +21,4 @@
 		MAX_CALL_LIST.set(data.maxCallList)
 		shortCalls.set(data.shortCalls)
 	});
-
 </script>

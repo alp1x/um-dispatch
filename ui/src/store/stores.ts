@@ -1,23 +1,21 @@
 import { writable, derived } from "svelte/store";
 
 export const VISIBILITY = writable<boolean>(false);
-export const BROWSER_MODE = writable<boolean>(false);
-export const RESOURCE_NAME = writable<string>("");
 
 export const PLAYER = writable<any>(null);
-export const MAX_CALL_LIST = writable<number>(null);
+export const MAX_CALL_LIST = writable<number | null>(null);
 export const RESPOND_KEYBIND = writable<string>("");
 
 export const DISPATCH_MUTED = writable<boolean>(false);
 export const DISPATCH_DISABLED = writable<boolean>(false);
 
-export const DISPATCH = writable<any[]>(null);
+export const DISPATCH = writable<any[]>([]);
 
 export const IS_RIGHT_MARGIN = writable(true);
 
 export const shortCalls = writable(true);
 
-export function removeDispatch(callID) {
+export function removeDispatch(callID: number) {
   DISPATCH.update(dispatches => {
     return dispatches.filter(dispatch => dispatch.data.id !== callID);
   });
@@ -48,11 +46,12 @@ interface DISPATCHMENU_DATA {
   jobs: any[],
 }
 
-export const DISPATCH_MENU = writable<DISPATCHMENU_DATA[]>(null);
-export const DISPATCH_MENUS = writable<DISPATCHMENU_DATA>(null);
+export const DISPATCH_MENU = writable<DISPATCHMENU_DATA[]>([]);
+export const DISPATCH_MENUS = writable<DISPATCHMENU_DATA | null>(null);
 
 
 interface LOCALE_DATA {
+  [key: string]: string,
   dispatch_detach: string,
   dispatch_attach: string,
   unit: string,
@@ -60,7 +59,7 @@ interface LOCALE_DATA {
   additionals: string,
 }
 
-export const Locale = writable<LOCALE_DATA>(null);
+export const Locale = writable<LOCALE_DATA | null>(null);
 
 export const processedDispatchMenu = derived(
   [DISPATCH_MENU, MAX_CALL_LIST, PLAYER],

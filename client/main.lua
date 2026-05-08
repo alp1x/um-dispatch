@@ -1,387 +1,206 @@
-QBCore = exports['qb-core']:GetCoreObject()
+local Config = require 'shared.config'
+local Blips = require 'shared.blips'
+local Utils = require 'client.modules.utils'
+local DispatchBlips = require 'client.modules.blips'
+local PhoneCall = require 'client.modules.phonecall'
+
+local toggleUI = Utils.toggleUI
+local IsOnDuty = Utils.IsOnDuty
+local GetStreetAndZone = Utils.GetStreetAndZone
+local AddDispatchBlip = DispatchBlips.AddDispatchBlip
+
 PlayerData = {}
-inHuntingZone, inNoDispatchZone = false, false
-local huntingZones, nodispatchZones, huntingBlips = {} , {}, {}
 
-local blips = {}
-local radius2 = {}
-local alertsMuted = false
-local alertsDisabled = false
+alertsDisabled = false
 local waypointCooldown = false
+local activeAlertExpire = 0
+local RespondToDispatch, OpenDispatchMenu = nil, nil
 
--- Functions
----@param bool boolean Toggles visibilty of the menu
-local function toggleUI(bool)
-    SetNuiFocus(bool, bool)
-    SendNUIMessage({ action = "setVisible", data = bool })
+local lastEmergencyTime = 0
+local emergencyJobs = {
+    ['911'] = { 'leo' },
+    ['311'] = { 'ems' },
+}
+
+
+---@param data table -- An array of jobs to check against
+---@return boolean
+local function isJobValid(data)
+    if not PlayerData.job then return false end
+    if type(data) ~= 'table' then return false end
+    return lib.table.contains(data, PlayerData.job.type)
 end
 
--- Zone Functions --
-local function removeZones()
-    -- Hunting Zone --
-    for i = 1, #huntingZones do
-        huntingZones[i]:remove()
+local function openMenu()
+    if not lib.table.contains(Config.Jobs, PlayerData.job.type) then return end
+    local calls = lib.callback.await('ps-dispatch:callback:getCalls', false)
+
+    if #calls == 0 then
+        lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
+        return
     end
-    -- No Dispatch Zone --
-    for i = 1, #nodispatchZones do
-        nodispatchZones[i]:remove()
-    end
-    -- Hunting Blips --
-    for i = 1, #huntingBlips do
-        RemoveBlip(huntingBlips[i])
-    end
-    -- Reset the stored values too
-    huntingZones, nodispatchZones, huntingBlips = {} , {}, {}
+
+    SendNUIMessage({ action = 'setDispatchs', data = calls })
+    toggleUI(true)
 end
 
-local function createZones()
-    -- Hunting Zone --
-    if Config.Locations['HuntingZones'][1] then
-    	for _, hunting in pairs(Config.Locations["HuntingZones"]) do
-            -- Creates the Blips
-            if Config.EnableHuntingBlip then
-                local blip = AddBlipForCoord(hunting.coords.x, hunting.coords.y, hunting.coords.z)
-                local huntingradius = AddBlipForRadius(hunting.coords.x, hunting.coords.y, hunting.coords.z, hunting.radius)
-                SetBlipSprite(blip, 442)
-                SetBlipAsShortRange(blip, true)
-                SetBlipScale(blip, 0.8)
-                SetBlipColour(blip, 0)
-                SetBlipColour(huntingradius, 0)
-                SetBlipAlpha(huntingradius, 40)
-                BeginTextCommandSetBlipName("STRING")
-                AddTextComponentString(hunting.label)
-                EndTextCommandSetBlipName(blip)
-                huntingBlips[#huntingBlips+1] = blip
-                huntingBlips[#huntingBlips+1] = huntingradius
-            end
-            -- Creates the Sphere --
-            local huntingZone = lib.zones.sphere({
-                coords = hunting.coords,
-                radius = hunting.radius,
-                debug = Config.Debug,
-                onEnter = function()
-                    inHuntingZone = true
-                end,
-                onExit = function()
-                    inHuntingZone = false
-                end
-            })
-            huntingZones[#huntingZones+1] = huntingZone
-    	end
-    end
-    -- No Dispatch Zone --
-    if Config.Locations['NoDispatchZones'][1] then
-    	for _, nodispatch in pairs(Config.Locations["NoDispatchZones"]) do
-            local nodispatchZone = lib.zones.box({
-                coords = nodispatch.coords,
-                size = vec3(nodispatch.length, nodispatch.width, nodispatch.maxZ - nodispatch.minZ),
-                rotation = nodispatch.heading,
-                debug = Config.Debug,
-                onEnter = function()
-                    inNoDispatchZone = true
-                end,
-                onExit = function()
-                    inNoDispatchZone = false
-                end
-            })
-            nodispatchZones[#nodispatchZones+1] = nodispatchZone
-    	end
-    end
+local function setWaypoint()
+    if not IsOnDuty() then return end
+
+    local data = lib.callback.await('ps-dispatch:callback:getLatestDispatch', false)
+    if not data then return end
+
+    if data.alertTime == nil then data.alertTime = Config.AlertTime end
+    if data.time < GetGameTimer() * 1000 then return end
+    if waypointCooldown or not lib.table.contains(data.jobs, PlayerData.job.type) then return end
+
+    SetNewWaypoint(data.coords.x, data.coords.y)
+    TriggerServerEvent('ps-dispatch:server:attach', data.id)
+    lib.notify({ description = locale('waypoint_set'), position = 'top', type = 'success' })
+
+    waypointCooldown = true
+    SetTimeout(data.alertTime * 1000, function()
+        waypointCooldown = false
+    end)
 end
 
 local function setupDispatch()
-    local playerInfo = QBCore.Functions.GetPlayerData()
-    local locales = lib.getLocales()
+    local playerInfo = Bridge.GetPlayerData()
+    if not playerInfo or not playerInfo.job then return end
+
+    if not lib.table.contains(Config.Jobs, playerInfo.job.type) then return end
+
     PlayerData = {
         charinfo = {
             firstname = playerInfo.charinfo.firstname,
-            lastname = playerInfo.charinfo.lastname
+            lastname = playerInfo.charinfo.lastname,
         },
         metadata = {
-            callsign = playerInfo.metadata.callsign
+            callsign = playerInfo.metadata.callsign,
         },
         citizenid = playerInfo.citizenid,
         job = {
             type = playerInfo.job.type,
             name = playerInfo.job.name,
-            label = playerInfo.job.label
+            label = playerInfo.job.label,
         },
     }
 
     Wait(1000)
 
     SendNUIMessage({
-        action = "setupUI",
+        action = 'setupUI',
         data = {
-            locales = locales,
+            locales = lib.getLocales(),
             player = PlayerData,
             keybind = Config.RespondKeybind,
             maxCallList = Config.MaxCallList,
             shortCalls = Config.ShortCalls,
         }
     })
+
+    -- Keybinds
+    RespondToDispatch = lib.addKeybind({
+        name = 'RespondToDispatch',
+        description = 'Set waypoint to last call location',
+        defaultKey = Config.RespondKeybind,
+        onPressed = setWaypoint,
+    })
+
+    OpenDispatchMenu = lib.addKeybind({
+        name = 'OpenDispatchMenu',
+        description = 'Open Dispatch Menu',
+        defaultKey = Config.OpenDispatchMenu,
+        onPressed = openMenu,
+    })
 end
 
----@param data string | table -- The player job or an array of jobs to check against
----@return boolean -- Returns true if the job is valid
-local function isJobValid(data)
-    if PlayerData.job == nil then return false end
-    local jobType = PlayerData.job.type
-    local jobName = PlayerData.job.name
 
-    if type(data) == "string" then
-        return lib.table.contains(Config.Jobs, data) or lib.table.contains(Config.Jobs, jobName)
-    elseif type(data) == "table" then
-        return lib.table.contains(data, jobType) or lib.table.contains(data, jobName)
-    end
 
-    return false
-end
+-- Bridge lifecycle
+Bridge.OnPlayerLoaded(function()
+    setupDispatch()
+end)
 
-local function openMenu()
-    if not isJobValid(PlayerData.job.type) then return end
+Bridge.OnJobUpdate(setupDispatch)
 
-    local calls = lib.callback.await('ps-dispatch:callback:getCalls', false)
-    if #calls == 0 then
-        lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
-    else
-        SendNUIMessage({ action = 'setDispatchs', data = calls, })
-        toggleUI(true)
-    end
-end
-
-local function setWaypoint()
-    if not isJobValid(PlayerData.job.type) then return end
-    if not IsOnDuty() then return end
-    
-    local data = lib.callback.await('ps-dispatch:callback:getLatestDispatch', false)
-    
-    if not data then return end
-    
-    if data.alertTime == nil then data.alertTime = Config.AlertTime end
-    
-    if data.time < GetGameTimer() * 1000 then return end
-    
-    local timer = data.alertTime * 1000
-    
-    if not waypointCooldown and lib.table.contains(data.jobs, PlayerData.job.type) then
-        SetNewWaypoint(data.coords.x, data.coords.y)
-        TriggerServerEvent('ps-dispatch:server:attach', data.id, PlayerData)
-        lib.notify({ description = locale('waypoint_set'), position = 'top', type = 'success' })
-        waypointCooldown = true
-        SetTimeout(timer, function()
-            waypointCooldown = false
-        end)
-    end
-end
-
-local function randomOffset(baseX, baseY, offset)
-    local randomX = baseX + math.random(-offset, offset)
-    local randomY = baseY + math.random(-offset, offset)
-
-    return randomX, randomY
-end
-
-local function createBlipData(coords, radius, sprite, color, scale, flash)
-    local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
-    local radiusBlip = AddBlipForRadius(coords.x, coords.y, coords.z, radius)
-
-    SetBlipFlashes(blip, flash)
-    SetBlipSprite(blip, sprite or 161)
-    SetBlipHighDetail(blip, true)
-    SetBlipScale(blip, scale or 1.0)
-    SetBlipColour(blip, color or 84)
-    SetBlipAlpha(blip, 255)
-    SetBlipAsShortRange(blip, false)
-    SetBlipCategory(blip, 2)
-    SetBlipColour(radiusBlip, color or 84)
-    SetBlipAlpha(radiusBlip, 128)
-
-    return blip, radiusBlip
-end
-
-local function createBlip(data, blipData)
-    local blip, radius = nil, nil
-    local sprite = blipData.sprite or blipData.alert.sprite or 161
-    local color = blipData.color or blipData.alert.color or 84
-    local scale = blipData.scale or blipData.alert.scale or 1.0
-    local flash = blipData.flash or false
-    local alpha = 255
-    local radiusAlpha = 128
-    local blipWaitTime = ((blipData.length or blipData.alert.length) * 60000) / radiusAlpha
-
-    if blipData.offset then
-        local offsetX, offsetY = randomOffset(data.coords.x, data.coords.y, Config.MaxOffset)
-        blip, radius = createBlipData({ x = offsetX, y = offsetY, z = data.coords.z }, blipData.radius, sprite, color, scale, flash)
-        blips[data.id] = blip
-        radius2[data.id] = radius
-    else
-        blip, radius = createBlipData(data.coords, blipData.radius, sprite, color, scale, flash)
-        blips[data.id] = blip
-        radius2[data.id] = radius
-    end
-
-    BeginTextCommandSetBlipName('STRING')
-    AddTextComponentString(data.code .. ' - ' .. data.message)
-    EndTextCommandSetBlipName(blip)
-
-    while radiusAlpha > 0 do
-        Wait(blipWaitTime)
-        radiusAlpha = math.max(0, radiusAlpha - 1)
-        SetBlipAlpha(radius, radiusAlpha)
-    end
-
-    RemoveBlip(radius)
-    RemoveBlip(blip)
-end
-
-local function addBlip(data, blipData)
-    CreateThread(function()
-        createBlip(data, blipData)
-    end)
-    if not alertsMuted then
-        if blipData.sound == "Lose_1st" then
-            PlaySound(-1, blipData.sound, blipData.sound2, 0, 0, 1)
-        else
-            TriggerServerEvent("InteractSound_SV:PlayOnSource", blipData.sound or blipData.alert.sound, 0.25)
-        end
-    end
-end
-
--- Keybind
-local RespondToDispatch = lib.addKeybind({
-    name = 'RespondToDispatch',
-    description = 'Set waypoint to last call location',
-    defaultKey = Config.RespondKeybind,
-    onPressed = setWaypoint,
-})
-
-local OpenDispatchMenu = lib.addKeybind({
-    name = 'OpenDispatchMenu',
-    description = 'Open Dispatch Menu',
-    defaultKey = Config.OpenDispatchMenu,
-    onPressed = openMenu,
-})
 
 -- Events
-RegisterNetEvent('ps-dispatch:client:notify', function(data, source)
-    if data.alertTime == nil then data.alertTime = Config.AlertTime end
-    local timer = data.alertTime * 1000
-
+RegisterNetEvent('ps-dispatch:client:notify', function(data)
+    if GetInvokingResource() then return end
     if alertsDisabled then return end
     if not isJobValid(data.jobs) then return end
     if not IsOnDuty() then return end
 
-    timerCheck = true
+    if data.alertTime == nil then data.alertTime = Config.AlertTime end
+    local timer = data.alertTime * 1000
 
     SendNUIMessage({
         action = 'newCall',
-        data = {
-            data = data,
-            timer = timer,
-        }
+        data = { data = data, timer = timer },
     })
 
-    addBlip(data, Config.Blips[data.codeName] or data.alert)
+    AddDispatchBlip(data, Blips[data.codeName] or data.alert)
+
+    if not RespondToDispatch or not OpenDispatchMenu then return end
 
     RespondToDispatch:disable(false)
     OpenDispatchMenu:disable(true)
 
-    local startTime = GetGameTimer()
-    while timerCheck do
-        Wait(1000)
+    local expireAt = GetGameTimer() + timer
+    activeAlertExpire = expireAt
 
-        local currentTime = GetGameTimer()
-        local elapsed = currentTime - startTime
+    SetTimeout(timer, function()
+        if activeAlertExpire ~= expireAt then return end
+        activeAlertExpire = 0
+        OpenDispatchMenu:disable(false)
+        RespondToDispatch:disable(true)
+    end)
+end)
 
-        if elapsed >= timer then
-            break
-        end
+RegisterNetEvent('ps-dispatch:client:sendCode', function(codeData)
+    if GetInvokingResource() then return end
+    if type(codeData) ~= 'table' then return end
+    if not PlayerData.job or PlayerData.job.type ~= 'leo' then return end
+
+    local coords = GetEntityCoords(cache.ped)
+    local dispatchData = {
+        message = codeData.message or 'Code',
+        codeName = 'officercode',
+        code = codeData.code or 'Code',
+        icon = codeData.icon or 'fas fa-bell',
+        priority = codeData.priority or 1,
+        coords = coords,
+        callsign = PlayerData.metadata and PlayerData.metadata.callsign or nil,
+        name = PlayerData.charinfo and (PlayerData.charinfo.firstname .. ' ' .. PlayerData.charinfo.lastname) or nil,
+        street = GetStreetAndZone(coords),
+        alertTime = nil,
+        jobs = { 'leo' },
+    }
+
+    TriggerServerEvent('ps-dispatch:server:notify', dispatchData)
+end)
+
+
+
+---@param data string -- Message
+---@param type string -- What type of emergency ('911' | '311')
+---@param anonymous boolean
+RegisterNetEvent('ps-dispatch:client:sendEmergencyMsg', function(data, type, anonymous)
+    if GetInvokingResource() then return end
+    local now = GetGameTimer()
+
+    if now - lastEmergencyTime < Config.AlertCommandCooldown * 1000 then
+        Bridge.Notify('Command on cooldown', 'error', 5000)
+        return
     end
 
-    timerCheck = false
-    OpenDispatchMenu:disable(false)
-    RespondToDispatch:disable(true)
+    lastEmergencyTime = now
+    PhoneCall(data, anonymous, emergencyJobs[type], type)
 end)
 
-RegisterNetEvent('ps-dispatch:client:openMenu', function(data)
-    if not isJobValid(PlayerData.job.type) then return end
-    if not IsOnDuty() then return end
-
-    if #data == 0 then
-        lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
-    else
-        toggleUI(true)
-        SendNUIMessage({ action = 'setDispatchs', data = data, })
-    end
-end)
-
--- EventHandlers
-RegisterNetEvent("QBCore:Client:OnJobUpdate", setupDispatch)
-
-AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
-    setupDispatch()
-    createZones()
-end)
-
-AddEventHandler('QBCore:Client:OnPlayerUnload', removeZones)
 
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     setupDispatch()
-end)
-
-AddEventHandler('onResourceStop', function(resourceName)
-    if resourceName ~= GetCurrentResourceName() then return end
-    removeZones()
-end)
-
--- NUICallbacks
-RegisterNUICallback("hideUI", function(_, cb)
-    toggleUI(false)
-    cb("ok")
-end)
-
-RegisterNUICallback("attachUnit", function(data, cb)
-    TriggerServerEvent('ps-dispatch:server:attach', data.id, PlayerData)
-    SetNewWaypoint(data.coords.x, data.coords.y)
-    cb("ok")
-end)
-
-RegisterNUICallback("detachUnit", function(data, cb)
-    TriggerServerEvent('ps-dispatch:server:detach', data.id, PlayerData)
-    DeleteWaypoint()
-    cb("ok")
-end)
-
-RegisterNUICallback("toggleMute", function(data, cb)
-    local muteStatus = data.boolean and locale('muted') or locale('unmuted')
-    lib.notify({ description = locale('alerts') .. muteStatus, position = 'top', type = 'warning' })
-    alertsMuted = data.boolean
-    cb("ok")
-end)
-
-RegisterNUICallback("toggleAlerts", function(data, cb)
-    local muteStatus = data.boolean and locale('disabled') or locale('enabled')
-    lib.notify({ description = locale('alerts') .. muteStatus, position = 'top', type = 'warning' })
-    alertsDisabled = data.boolean
-    cb("ok")
-end)
-
-RegisterNUICallback("clearBlips", function(data, cb)
-    lib.notify({ description = locale('blips_cleared'), position = 'top', type = 'success' })
-    for k, v in pairs(blips) do
-        RemoveBlip(v)
-    end
-    for k, v in pairs(radius2) do
-        RemoveBlip(v)
-    end
-    cb("ok")
-end)
-
-RegisterNUICallback("refreshAlerts", function(data, cb)
-    lib.notify({ description = locale('alerts_refreshed'), position = 'top', type = 'success' })
-    local data = lib.callback.await('ps-dispatch:callback:getCalls', false)
-    SendNUIMessage({ action = 'setDispatchs', data = data, })
-    cb("ok")
 end)

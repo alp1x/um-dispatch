@@ -1,56 +1,47 @@
 <script lang="ts">
-  import { ReceiveNUI } from '../utils/ReceiveNUI';
-  import { SendNUI } from '../utils/SendNUI';
-  import { onMount } from 'svelte';
-  import { BROWSER_MODE, VISIBILITY } from '../store/stores';
-  import BackdropFix from './BackdropFix.svelte';
+	import { ReceiveNUI } from '../utils/ReceiveNUI'
+	import { SendNUI } from '../utils/SendNUI'
+	import { onMount } from 'svelte'
+	import { get } from 'svelte/store'
+	import { VISIBILITY } from '../store/stores'
+	let { children } = $props()
 
-  let isVisible: boolean;
+	ReceiveNUI<boolean>('setVisible', (visible: boolean) => {
+		VISIBILITY.set(visible)
+	})
 
-  VISIBILITY.subscribe((visible: boolean) => {
-    isVisible = visible;
-  });
+	onMount(() => {
+		const keyHandler = (e: KeyboardEvent) => {
+			if (e.code !== 'Escape') return
+			if (!get(VISIBILITY)) return
 
-  ReceiveNUI<boolean>('setVisible', (visible: boolean) => {
-    VISIBILITY.set(visible);
-  });
+			SendNUI('hideUI')
+			VISIBILITY.set(false)
+		}
 
-  onMount(() => {
-    const keyHandler = (e: KeyboardEvent) => {
-      if (isVisible && e.code === 'Escape') {
-        SendNUI('hideUI');
-        VISIBILITY.set(false);
-      }
-      if (!isVisible && e.code === 'Escape' && $BROWSER_MODE) {
-        SendNUI('setVisible', true);
-        VISIBILITY.set(true);
-      }
-    };
+		window.addEventListener('keydown', keyHandler)
 
-    window.addEventListener('keydown', keyHandler);
-
-    return () => window.removeEventListener('keydown', keyHandler);
-  });
+		return () => window.removeEventListener('keydown', keyHandler)
+	})
 </script>
 
 {#if $VISIBILITY}
-  <main>
-    <slot />
-  </main>
-  <!-- <BackdropFix /> -->
+	<main>
+		{@render children?.()}
+	</main>
 {/if}
 
 <style>
-  main {
-    position: absolute;
-    left: 0;
-    top: 0;
-    z-index: 100;
-    user-select: none;
-    box-sizing: border-box;
-    padding: 0;
-    margin: 0;
-    height: 100vh;
-    width: 100vw;
-  }
+	main {
+		position: absolute;
+		left: 0;
+		top: 0;
+		z-index: 100;
+		user-select: none;
+		box-sizing: border-box;
+		padding: 0;
+		margin: 0;
+		height: 100vh;
+		width: 100vw;
+	}
 </style>

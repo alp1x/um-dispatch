@@ -1,8 +1,10 @@
+import { mount } from 'svelte'
 import App from './App.svelte'
-import './Tailwind.css'
+import '@fortawesome/fontawesome-free/css/all.min.css'
+import '../style.css'
 
-const app = new App({
-  target: document.getElementById('app')
+const app = mount(App, {
+  target: document.getElementById('app')!,
 })
 
 export default app

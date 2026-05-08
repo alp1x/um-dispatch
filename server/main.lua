@@ -1,107 +1,85 @@
+local Config = require 'shared.config'
+local TrackJobs = require 'server.trackjobs'
+
 local calls = {}
+local callsById = {}
 local callCount = 0
 
--- Functions
-exports('GetDispatchCalls', function()
-    return calls
-end)
+TrackJobs.Initialize()
 
--- Events
-RegisterServerEvent('ps-dispatch:server:notify', function(data)
+local function getCalls()
+    return calls
+end
+
+local function buildUnit(player)
+    local data = player.PlayerData
+    return {
+        citizenid = data.citizenid,
+        charinfo = data.charinfo,
+        metadata = data.metadata,
+        job = data.job,
+    }
+end
+
+RegisterNetEvent('ps-dispatch:server:notify', function(data)
+    if type(data) ~= 'table' or type(data.jobs) ~= 'table' then return end
+
     callCount = callCount + 1
     data.id = callCount
     data.time = os.time() * 1000
     data.units = {}
-    data.responses = {}
 
-    if #calls > 0 then
-        if calls[#calls] == data then
-            return
-        end
-    end
-        
     if #calls >= Config.MaxCallList then
-        table.remove(calls, 1)
+        local removed = table.remove(calls, 1)
+        if removed then callsById[removed.id] = nil end
     end
 
     calls[#calls + 1] = data
+    callsById[data.id] = data
 
-    TriggerClientEvent('ps-dispatch:client:notify', -1, data)
+    local targets = TrackJobs.GetTargetPlayers(data.jobs)
+    for i = 1, #targets do
+        TriggerClientEvent('ps-dispatch:client:notify', targets[i], data)
+    end
 end)
 
-RegisterServerEvent('ps-dispatch:server:attach', function(id, player)
-    for i=1, #calls do
-        if calls[i]['id'] == id then
-            for j = 1, #calls[i]['units'] do
-                if calls[i]['units'][j]['citizenid'] == player.citizenid then
-                    return
-                end
-            end
-            calls[i]['units'][#calls[i]['units'] + 1] = player
+RegisterNetEvent('ps-dispatch:server:attach', function(id)
+    local call = callsById[id]
+    if not call then return end
+
+    local player = Bridge.GetPlayer(source)
+    if not player then return end
+
+    local citizenid = player.PlayerData.citizenid
+    local units = call.units
+    for i = 1, #units do
+        if units[i].citizenid == citizenid then return end
+    end
+
+    units[#units + 1] = buildUnit(player)
+end)
+
+RegisterNetEvent('ps-dispatch:server:detach', function(id)
+    local call = callsById[id]
+    if not call then return end
+
+    local player = Bridge.GetPlayer(source)
+    if not player then return end
+
+    local citizenid = player.PlayerData.citizenid
+    local units = call.units
+    for i = 1, #units do
+        if units[i].citizenid == citizenid then
+            table.remove(units, i)
             return
         end
     end
 end)
 
-RegisterServerEvent('ps-dispatch:server:detach', function(id, player)
-    for i = #calls, 1, -1 do
-        if calls[i]['id'] == id then
-            if calls[i]['units'] and (#calls[i]['units'] or 0) > 0 then
-                for j = #calls[i]['units'], 1, -1 do
-                    if calls[i]['units'][j]['citizenid'] == player.citizenid then
-                        table.remove(calls[i]['units'], j)
-                    end
-                end
-            end
-            return
-        end
-    end
-end)
-
--- Callbacks
-lib.callback.register('ps-dispatch:callback:getLatestDispatch', function(source)
+lib.callback.register('ps-dispatch:callback:getLatestDispatch', function()
     return calls[#calls]
 end)
 
-lib.callback.register('ps-dispatch:callback:getCalls', function(source)
-    return calls
-end)
+lib.callback.register('ps-dispatch:callback:getCalls', getCalls)
 
--- Commands
-lib.addCommand('dispatch', {
-    help = locale('open_dispatch')
-}, function(source, raw)
-    TriggerClientEvent("ps-dispatch:client:openMenu", source, calls)
-end)
-
-lib.addCommand('911', {
-    help = 'Send a message to 911',
-    params = { { name = 'message', type = 'string', help = '911 Message' }},
-}, function(source, args, raw)
-    local fullMessage = raw:sub(5)
-    TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "911", false)
-end)
-lib.addCommand('911a', {
-    help = 'Send an anonymous message to 911',
-    params = { { name = 'message', type = 'string', help = '911 Message' }},
-}, function(source, args, raw)
-    local fullMessage = raw:sub(5)
-    TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "911", true)
-end)
-
-lib.addCommand('311', {
-    help = 'Send a message to 311',
-    params = { { name = 'message', type = 'string', help = '311 Message' }},
-}, function(source, args, raw)
-    local fullMessage = raw:sub(5)
-    TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "311", false)
-end)
-
-lib.addCommand('311a', {
-    help = 'Send an anonymous message to 311',
-    params = { { name = 'message', type = 'string', help = '311 Message' }},
-}, function(source, args, raw)
-    local fullMessage = raw:sub(5)
-    TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "311", true)
-end)
-
+exports('GetDispatchCalls', getCalls)

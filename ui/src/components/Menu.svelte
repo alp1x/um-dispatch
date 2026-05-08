@@ -1,204 +1,299 @@
 <script>
-  import { PLAYER, Locale, DISPATCH_MENU, DISPATCH_MUTED, DISPATCH_DISABLED, IS_RIGHT_MARGIN, processedDispatchMenu } from '@store/stores';
-  import { fly, slide } from 'svelte/transition';
+	import {
+		PLAYER,
+		Locale,
+		DISPATCH_MENU,
+		DISPATCH_MUTED,
+		DISPATCH_DISABLED,
+		IS_RIGHT_MARGIN,
+		processedDispatchMenu,
+	} from '@store/stores'
+	import { fly, slide } from 'svelte/transition'
 	import { timeAgo } from '@utils/timeAgo'
 	import { SendNUI } from '@utils/SendNUI'
-	import { onDestroy, onMount } from 'svelte'
-  
-  let activeCallId = null;
-  let additionalUnitsVisible = {};
-  let unsubscribe;
+	import DispatchCard from '@components/DispatchCard.svelte'
+	import Clock from 'lucide-svelte/icons/clock'
+	import MapPin from 'lucide-svelte/icons/map-pin'
+	import Info from 'lucide-svelte/icons/info'
+	import Route from 'lucide-svelte/icons/route'
+	import User from 'lucide-svelte/icons/user'
+	import Shield from 'lucide-svelte/icons/shield'
+	import Car from 'lucide-svelte/icons/car'
+	import Contact from 'lucide-svelte/icons/contact'
+	import Users from 'lucide-svelte/icons/users'
+	import Circle from 'lucide-svelte/icons/circle'
+	import RefreshCw from 'lucide-svelte/icons/refresh-cw'
+	import Volume2 from 'lucide-svelte/icons/volume-2'
+	import VolumeX from 'lucide-svelte/icons/volume-x'
+	import Bell from 'lucide-svelte/icons/bell'
+	import BellOff from 'lucide-svelte/icons/bell-off'
+	import Ban from 'lucide-svelte/icons/ban'
+	import ArrowLeft from 'lucide-svelte/icons/arrow-left'
+	import ArrowRight from 'lucide-svelte/icons/arrow-right'
 
-  $: menuRight = false;
+	let activeCallId = $state(null)
+	let additionalUnitsVisible = $state({})
 
-  onMount(() => {
-    unsubscribe = IS_RIGHT_MARGIN.subscribe((value) => {
-      menuRight = value;
-    })
-  })
+	function toggleDispatch(id) {
+		activeCallId = activeCallId === id ? null : id
+	}
 
-  onDestroy(() => {
-    unsubscribe();
-  })
-  
-  function toggleDispatch(id) {
-    if (activeCallId === id) {
-      activeCallId = null;
-    } else {
-      activeCallId = id;
-    }
-  }
+	function isAttached(units, player) {
+		return units.some((u) => u.citizenid === player)
+	}
 
-  function CheckIfAttached(units, player) {
-    for (let i = 0; i < units.length; i++) {
-      if (units[i].citizenid === player) {
-        return true;
-      }
-    }
-    return false;
-  }
+	function toggleAdditionalUnits(callId) {
+		additionalUnitsVisible[callId] = !additionalUnitsVisible[callId]
+	}
 
-  function toggleAdditionalUnits(callId) {
-    additionalUnitsVisible[callId] = !additionalUnitsVisible[callId];
-  }
+	function additionalCount(dispatch) {
+		return Math.max(0, dispatch.units.length - 3)
+	}
 
-  function getAdditionalUnitsCount(dispatch) {
-    const maxVisibleUnits = 3;
-    const additionalUnits = dispatch.units.length - maxVisibleUnits;
-    return Math.max(0, additionalUnits);
-  }
+	function toggleMargin() {
+		IS_RIGHT_MARGIN.update((v) => !v)
+	}
 
-  function toggleMargin() {
-    menuRight = !menuRight;
+	function toggleMute() {
+		DISPATCH_MUTED.update((v) => !v)
+		SendNUI('toggleMute', { boolean: $DISPATCH_MUTED })
+	}
 
-    IS_RIGHT_MARGIN.set(menuRight);
-  }
+	function toggleAlerts() {
+		DISPATCH_DISABLED.update((v) => !v)
+		SendNUI('toggleAlerts', { boolean: $DISPATCH_DISABLED })
+	}
 
-  function toggleMute() {
-    DISPATCH_MUTED.update(value => !value);
-    SendNUI("toggleMute", { boolean: $DISPATCH_MUTED });
-  }
+	function t(key, fallback) {
+		return $Locale?.[key] ?? fallback
+	}
 
-  function toggleAlerts() {
-    DISPATCH_DISABLED.update(value => !value);
-    SendNUI("toggleAlerts", { boolean: $DISPATCH_DISABLED });
-  }
+	function jobTint(jobType) {
+		if (jobType === 'leo') return 'border-blue-400/50 text-blue-200'
+		if (jobType === 'ems') return 'border-red-400/50 text-red-200'
+		return 'border-zinc-500/50 text-zinc-300'
+	}
 
-  function getDispatchData(dispatch) {
-    return [
-      { icon: 'fas fa-clock', label: 'Time', value: timeAgo(dispatch.time) },
-      { icon: 'fas fa-user', label: 'Name', value: dispatch.name },
-      { icon: 'fas fa-phone', label: 'Number', value: dispatch.number },
-      { icon: 'fas fa-comment', label: 'Information', value: dispatch.information },
-      { icon: 'fas fa-map-location-dot', label: 'Street', value: dispatch.street },
-      { icon: 'fas fa-user', label: 'Gender', value: dispatch.gender },
-      { icon: 'fas fa-gun', label: 'Automatic Gun Fire', value: dispatch.automaticGunFire },
-      { icon: 'fas fa-gun', label: 'Weapon', value: dispatch.weapon },
-      { icon: 'fas fa-car', label: 'Vehicle', value: dispatch.vehicle },
-      { icon: 'fas fa-rectangle-list', label: 'Plate', value: dispatch.plate },
-      { icon: 'fas fa-droplet', label: 'Color', value: dispatch.color },
-      { icon: 'fas fa-car', label: 'Class', value: dispatch.class },
-      { icon: 'fas fa-door-open', label: 'Doors', value: dispatch.doors },
-      { icon: 'fas fa-compass', label: 'Heading', value: dispatch.heading },
-      { icon: 'fas fa-user-group', label: 'Units', value: dispatch.units.length },
-    ];
-  }
+	const detailIcons = {
+		Time: Clock,
+		Street: MapPin,
+		Information: Info,
+		Location: MapPin,
+		Distance: Route,
+		Person: User,
+		Weapon: Shield,
+		Vehicle: Car,
+		Plate: Contact,
+		Units: Users,
+	}
+
+	function getDetailIcon(label) {
+		return detailIcons[label] || Circle
+	}
+
+	function shouldRender(value) {
+		if (value == null) return false
+		if (typeof value === 'string') {
+			const v = value.trim().toLowerCase()
+			if (!v || v === 'unknown') return false
+		}
+		return true
+	}
+
+	function getCompactFields(dispatch) {
+		return [
+			{ label: 'Street', value: dispatch.street || dispatch.location },
+			{ label: 'Information', value: dispatch.information },
+			{ label: 'Distance', value: dispatch.distance },
+			{ label: 'Person', value: dispatch.person || dispatch.name },
+			{ label: 'Gender', value: dispatch.gender },
+			{ label: 'Vehicle', value: dispatch.vehicle },
+		]
+	}
+
+	function getDetailFields(dispatch) {
+		return [
+			{ label: 'Time', value: timeAgo(dispatch.time) },
+			{ label: 'Street', value: dispatch.street },
+			{ label: 'Location', value: dispatch.location },
+			{ label: 'Distance', value: dispatch.distance },
+			{ label: 'Information', value: dispatch.information },
+			{ label: 'Person', value: dispatch.person || dispatch.name },
+			{ label: 'Gender', value: dispatch.gender },
+			{ label: 'Weapon', value: dispatch.weapon },
+			{ label: 'Vehicle', value: dispatch.vehicle },
+			{ label: 'Plate', value: dispatch.plate },
+			{ label: 'Units', value: dispatch.units.length },
+		]
+	}
+
+	const MuteIcon = $derived($DISPATCH_MUTED ? VolumeX : Volume2)
+	const AlertIcon = $derived($DISPATCH_DISABLED ? BellOff : Bell)
+	const MarginIcon = $derived($IS_RIGHT_MARGIN ? ArrowLeft : ArrowRight)
 </script>
 
-<div class="w-screen h-screen flex items-center justify-end { menuRight ? 'flex-row' : 'flex-row-reverse' } " transition:fly="{{ x: menuRight ? 400 : -400 }}">
-  <!-- CONTROLS -->
-  <div class="w-[3.2vh] h-[85%] flex flex-col gap-[1vh]" class:ml-[1vh]={!menuRight} class:mr-[1vh]={menuRight}>
+<div
+	class="flex h-screen w-screen items-center justify-end p-3 {$IS_RIGHT_MARGIN
+		? 'flex-row'
+		: 'flex-row-reverse'}"
+	transition:fly={{ x: $IS_RIGHT_MARGIN ? 400 : -400 }}
+>
+	<!-- CONTROLS -->
+	<div class="flex w-8 flex-col gap-1">
+		<button
+			class="flex h-7 w-full items-center justify-center rounded-md border border-white/10 bg-zinc-900/85 text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-100"
+			aria-label={t('ui_refresh_alerts', 'Refresh alerts')}
+			title={t('ui_refresh_alerts', 'Refresh alerts')}
+			onclick={() => SendNUI('refreshAlerts')}
+		>
+			<RefreshCw class="h-3.5 w-3.5" />
+		</button>
+		<button
+			class="flex h-7 w-full items-center justify-center rounded-md border border-white/10 bg-zinc-900/85 text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-100"
+			aria-label={$DISPATCH_MUTED
+				? t('ui_unmute_alerts', 'Unmute alerts')
+				: t('ui_mute_alerts', 'Mute alerts')}
+			title={$DISPATCH_MUTED
+				? t('ui_unmute_alerts', 'Unmute alerts')
+				: t('ui_mute_alerts', 'Mute alerts')}
+			onclick={toggleMute}
+		>
+			<MuteIcon class="h-3.5 w-3.5" />
+		</button>
+		<button
+			class="flex h-7 w-full items-center justify-center rounded-md border border-white/10 bg-zinc-900/85 text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-100"
+			aria-label={$DISPATCH_DISABLED
+				? t('ui_enable_alerts', 'Enable alerts')
+				: t('ui_disable_alerts', 'Disable alerts')}
+			title={$DISPATCH_DISABLED
+				? t('ui_enable_alerts', 'Enable alerts')
+				: t('ui_disable_alerts', 'Disable alerts')}
+			onclick={toggleAlerts}
+		>
+			<AlertIcon class="h-3.5 w-3.5" />
+		</button>
+		<button
+			class="flex h-7 w-full items-center justify-center rounded-md border border-white/10 bg-zinc-900/85 text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-100"
+			aria-label={t('ui_clear_blips', 'Clear blips')}
+			title={t('ui_clear_blips', 'Clear blips')}
+			onclick={() => SendNUI('clearBlips')}
+		>
+			<Ban class="h-3.5 w-3.5" />
+		</button>
+		<button
+			class="flex h-7 w-full items-center justify-center rounded-md border border-white/10 bg-zinc-900/85 text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-100"
+			aria-label={$IS_RIGHT_MARGIN
+				? t('ui_move_menu_left', 'Move menu to left')
+				: t('ui_move_menu_right', 'Move menu to right')}
+			title={$IS_RIGHT_MARGIN
+				? t('ui_move_menu_left', 'Move menu to left')
+				: t('ui_move_menu_right', 'Move menu to right')}
+			onclick={toggleMargin}
+		>
+			<MarginIcon class="h-3.5 w-3.5" />
+		</button>
+	</div>
 
-    <!-- REFRESH ALERTS -->
-    <button class="w-full h-[3vh] flex items-center justify-center bg-primary hover:bg-secondary"
+	<!-- MENU -->
+	<div
+		class="ml-2 mr-2 flex h-[90%] w-[340px] flex-col gap-2 overflow-y-auto pr-1"
+	>
+		{#if $DISPATCH_MENU}
+			{#each $processedDispatchMenu as dispatch (dispatch.id)}
+				<div class="flex flex-col gap-1">
+					<button
+						class="block w-full bg-transparent p-0 text-left"
+						onclick={() => toggleDispatch(dispatch.id)}
+					>
+						<DispatchCard
+							{dispatch}
+							fields={getCompactFields(dispatch)}
+						/>
+					</button>
 
-      on:click={() => {
-        SendNUI("refreshAlerts");
-      }}
-    >
-      <i class="fas fa-arrows-rotate text-[1.5vh]"></i>
-    </button>
-    <!-- TOGGLE MUTE -->
-    <button class="w-full h-[3vh] flex items-center justify-center bg-primary hover:bg-secondary"
-      on:click={toggleMute}
-    >
-      <i class="fas fa-volume-{$DISPATCH_MUTED ? "xmark" : "high"} text-[1.5vh]"></i>
-    </button>
-    <!-- TOGGLE ALERTS -->
-    <button class="w-full h-[3vh] flex items-center justify-center bg-primary hover:bg-secondary"
-      on:click={toggleAlerts}
-    >
-      <i class="fas fa-{$DISPATCH_DISABLED ? "bell-slash" : "bell"} text-[1.5vh]"></i>
-    </button>
-    <!-- CLEAR BLIPS -->
-    <button class="w-full h-[3vh] flex items-center justify-center bg-primary hover:bg-secondary"
-      on:click={() => {
-        SendNUI("clearBlips");
-      }}
-    >
-    <i class="fas fa-ban text-[1.5vh]"></i>
+					{#if activeCallId === dispatch.id}
+						<div class="flex flex-col gap-1" transition:slide={{ duration: 200 }}>
+							<div
+								class="rounded-lg border border-white/10 bg-zinc-900/70 px-3 py-2"
+							>
+								<div
+									class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
+								>
+									{t('ui_details', 'Details')}
+								</div>
+								<div class="flex flex-col gap-1 text-xs text-zinc-300">
+									{#each getDetailFields(dispatch) as field (field.label)}
+										{#if shouldRender(field.value)}
+											{@const Icon = getDetailIcon(field.label)}
+											<div
+												class="flex items-center gap-2 rounded bg-white/5 px-2 py-0.5"
+											>
+												<Icon class="h-3 w-3 shrink-0 text-zinc-500" />
+												<span class="line-clamp-1">{field.value}</span>
+											</div>
+										{/if}
+									{/each}
+								</div>
+							</div>
 
-    </button>
-    <!-- Toggle Margin -->
-    <button class="w-full h-[3vh] flex items-center justify-center bg-primary hover:bg-secondary"
-      on:click={toggleMargin}
-    >
-    <i class="fas fa-{menuRight ? "hand-point-left" : "hand-point-right"} text-[1.5vh]"></i>
+							{#if dispatch.units.length > 0}
+								<div class="flex flex-col gap-1">
+									{#each dispatch.units.slice(0, additionalUnitsVisible[dispatch.id] ? dispatch.units.length : 3) as unit (unit.citizenid)}
+										<div
+											class="flex h-9 w-full items-center gap-2 rounded-lg border border-white/10 bg-zinc-900/70 px-2 text-xs text-zinc-200"
+										>
+											<span
+												class="rounded-md bg-zinc-800 px-2 py-0.5 font-semibold"
+											>
+												{unit.metadata.callsign}
+											</span>
+											<span
+												class="rounded-md border bg-zinc-900/40 px-2 py-0.5 text-[10px] font-semibold uppercase {jobTint(
+													unit.job.type,
+												)}"
+											>
+												{unit.job.name}
+											</span>
+											<span class="line-clamp-1 text-zinc-300">
+												{unit.charinfo.firstname} {unit.charinfo.lastname}
+											</span>
+										</div>
+									{/each}
+									{#if dispatch.units.length > 3 && !additionalUnitsVisible[dispatch.id]}
+										<button
+											class="flex h-7 w-full items-center justify-center rounded-md border border-white/10 bg-zinc-900/60 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-zinc-100"
+											onclick={() => toggleAdditionalUnits(dispatch.id)}
+										>
+											+{additionalCount(dispatch)} {$Locale.additionals}
+										</button>
+									{/if}
+								</div>
+							{/if}
 
-    </button>
-  </div>
-  <!-- MENU -->
-  <div class="w-[25%] h-[97%] overflow-auto pr-[0.5vh]" class:ml-[2vh]={!menuRight} class:mr-[2vh]={menuRight}>
-    {#if $DISPATCH_MENU}
-    {#each $processedDispatchMenu as dispatch}
-    <button class="w-full h-fit mb-[1vh] font-medium {dispatch.priority == 1 ? 'bg-priority_secondary' : 'bg-secondary'}" on:click={() => toggleDispatch(dispatch.id)}>
-        <div class="flex items-center gap-[1vh] p-[1vh] text-[1.5vh] {dispatch.priority == 1 ? " bg-priority_primary" : " bg-primary"}">
-            <p class="px-[2vh] py-[0.2vh] rounded-full bg-accent_green">
-              #{dispatch.id}
-            </p>
-            <p class="px-[2vh] py-[0.2vh] rounded-full {dispatch.priority == 1 ? " bg-accent_red" : "bg-accent_cyan"}">
-              {dispatch.code}
-            </p>
-            <p class="py-[0.2vh]">
-              {dispatch.message}
-            </p>
-            <i class="{dispatch.icon} py-[0.2vh] ml-auto mr-[0.5vh] {dispatch.priority == 1 ? " text-accent_red" : "text-accent_cyan"}"></i>
-          </div>
-          <div class="flex flex-col p-[1vh] gap-y-[0.4vh] text-[1.4vh] w-full text-start">
-              {#each getDispatchData(dispatch) as field}
-                {#if field.value}
-                  <p>
-                    <i class={field.icon + ' mr-[0.5vh]'}></i>
-                    {field.label}: {field.value}
-                  </p>
-                {/if}
-              {/each}
-          </div>
-        </button>
-        <!-- UNITS, ATTACH AND DETACH -->
-        {#if activeCallId === dispatch.id}
-        <div class=" mb-[1vh]" transition:slide={{ duration: 300 }}>
-          {#if dispatch.units.length > 0}
-            <div class="flex flex-col gap-[0.2vh] mb-[1vh] bg-primary">
-              {#each dispatch.units.slice(0, additionalUnitsVisible[dispatch.id] ? dispatch.units.length : 3) as unit}
-                <div class="w-full h-[5vh] flex {dispatch.priority == 1 ? 'bg-priority_tertiary' : 'bg-tertiary'} flex items-center font-medium">
-                  <p class="ml-[2vh] px-[1.4vh] py-[0.2vh] rounded-full {dispatch.priority == 1 ? 'bg-priority_secondary' : 'bg-secondary'}">{unit.metadata.callsign}</p>
-                  <p class="mx-[1vh] px-[1.5vh] py-[0.2vh] rounded-full uppercase {unit.job.type == "leo" ? "bg-[#004ca5] " : unit.job.type == "ems" ? "bg-[#e03535]" : "bg-[#4b4b4b]" }">{unit.job.name}</p>
-                  <p class="ml-[0.5vh]">{unit.charinfo.firstname} {unit.charinfo.lastname}</p>
-                </div>
-              {/each}
-              {#if dispatch.units.length > 3}
-                {#if !additionalUnitsVisible[dispatch.id]}
-                  <button class="w-full h-[5vh] flex items-center justify-center {dispatch.priority == 1 ? 'bg-priority_tertiary' : 'bg-tertiary'} flex items-center font-medium" on:click={() => toggleAdditionalUnits(dispatch.id)}>
-                    <p class="ml-[0.5vh]">+{getAdditionalUnitsCount(dispatch)} {$Locale.additionals}</p>
-                  </button>
-                {/if}
-              {/if}
-            </div>
-          {/if}
-          <button class="w-full h-[5vh] {dispatch.priority == 1 ? " bg-priority_quaternary" : " bg-accent_green"} flex items-center font-medium"
-            on:click={() => {
-              if (CheckIfAttached(dispatch.units, $PLAYER.citizenid)) {
-                SendNUI("detachUnit", dispatch );
-                SendNUI("refreshAlerts");
-              } else {
-                SendNUI("attachUnit", dispatch );
-                SendNUI("refreshAlerts");
-              }
-            }}>
-            <p class="mx-[2vh] px-[2vh] py-[0.2vh] rounded-full {dispatch.priority == 1 ? " bg-accent_dark_red" : "  bg-accent_dark_green"} ">{dispatch.units.length} {$Locale.units}</p>
-            <p class="ml-[3vh]">
-              {#if CheckIfAttached(dispatch.units, $PLAYER.citizenid)}
-                {$Locale.dispatch_detach}
-              {:else}
-                {$Locale.dispatch_attach}
-              {/if}
-            </p>
-          </button>
-        </div>
-        {/if}
-      {/each}
-    {/if}
-  </div>
+							<button
+								class="flex h-9 w-full items-center gap-2 rounded-lg border border-white/10 bg-zinc-900/70 px-2 text-xs font-semibold text-zinc-100 transition-colors hover:border-white/20"
+								onclick={() => {
+									if (isAttached(dispatch.units, $PLAYER.citizenid)) {
+										SendNUI('detachUnit', dispatch)
+									} else {
+										SendNUI('attachUnit', dispatch)
+									}
+									SendNUI('refreshAlerts')
+								}}
+							>
+								<span class="rounded-md bg-zinc-800 px-2 py-0.5">
+									{dispatch.units.length} {$Locale.units}
+								</span>
+								<span>
+									{isAttached(dispatch.units, $PLAYER.citizenid)
+										? $Locale.dispatch_detach
+										: $Locale.dispatch_attach}
+								</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/each}
+		{/if}
+	</div>
 </div>
-

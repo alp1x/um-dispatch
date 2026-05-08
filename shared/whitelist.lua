@@ -1,0 +1,18 @@
+-- Whitelist Guns that do not send shooting alerts
+return {
+    'WEAPON_GRENADE',
+    'WEAPON_BZGAS',
+    'WEAPON_MOLOTOV',
+    'WEAPON_STICKYBOMB',
+    'WEAPON_PROXMINE',
+    'WEAPON_SNOWBALL',
+    'WEAPON_PIPEBOMB',
+    'WEAPON_BALL',
+    'WEAPON_SMOKEGRENADE',
+    'WEAPON_FLARE',
+    'WEAPON_PETROLCAN',
+    'WEAPON_FIREEXTINGUISHER',
+    'WEAPON_HAZARDCAN',
+    'WEAPON_RAYCARBINE',
+    'WEAPON_STUNGUN'
+}
